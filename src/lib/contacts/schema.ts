@@ -27,7 +27,12 @@ export const PHOTO_MEDIA_TYPES = [
   "image/webp",
   "image/gif",
 ] as const;
-export const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+/**
+ * Ceiling on the decoded image. Kept below 1 MiB / (4/3) so that a photo which
+ * passes here still fits inside the 1 MiB Next.js Server Action body limit once
+ * base64 inflates it by a third — otherwise editing such a contact would fail.
+ */
+export const MAX_PHOTO_BYTES = 700 * 1024;
 
 const PHOTO_DATA_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 

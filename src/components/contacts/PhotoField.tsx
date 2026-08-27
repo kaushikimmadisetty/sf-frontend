@@ -21,8 +21,22 @@ const JPEG_QUALITY = 0.85;
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_UPLOAD_MB = MAX_UPLOAD_BYTES / (1024 * 1024);
 
+/**
+ * Refuse absurd pixel dimensions before allocating a canvas for them. A heavily
+ * compressed file can sit under the byte cap and still decode to hundreds of
+ * megapixels.
+ */
+const MAX_SOURCE_PIXELS = 40_000_000;
+
 function isAllowedType(type: string): boolean {
   return (PHOTO_MEDIA_TYPES as readonly string[]).includes(type);
+}
+
+/** Bytes a base64 data URL decodes to, without actually decoding it. */
+function decodedSize(dataUrl: string): number {
+  const encoded = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.floor((encoded.length * 3) / 4) - padding;
 }
 
 /** Downscale to `MAX_EDGE` on the longest side and re-encode as a JPEG data URL. */
@@ -30,6 +44,10 @@ async function toAvatarDataUrl(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file);
 
   try {
+    if (bitmap.width * bitmap.height > MAX_SOURCE_PIXELS) {
+      throw new Error("image dimensions are unreasonably large");
+    }
+
     const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
@@ -62,14 +80,24 @@ async function toAvatarDataUrl(file: File): Promise<string> {
 export default function PhotoField({
   defaultValue,
   error,
+  onBusyChange,
 }: {
   defaultValue: string;
   error?: string;
+  /** Lets the form block Save while an image is still being converted. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [photo, setPhoto] = useState(defaultValue);
   const [localError, setLocalError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  /** Identifies the latest pick, so a slower earlier one cannot overwrite it. */
+  const latestPick = useRef(0);
+
+  function setBusyState(value: boolean) {
+    setBusy(value);
+    onBusyChange?.(value);
+  }
 
   async function handleChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -85,19 +113,24 @@ export default function PhotoField({
       return;
     }
 
-    setBusy(true);
+    const pick = (latestPick.current += 1);
+    setBusyState(true);
     try {
       const dataUrl = await toAvatarDataUrl(file);
-      if (dataUrl.length > MAX_PHOTO_BYTES) {
+      if (pick !== latestPick.current) return; // superseded by a later pick
+
+      if (decodedSize(dataUrl) > MAX_PHOTO_BYTES) {
         setLocalError("That image could not be reduced enough. Try another one.");
         return;
       }
       setLocalError(null);
       setPhoto(dataUrl);
     } catch {
-      setLocalError("That image could not be read.");
+      if (pick === latestPick.current) {
+        setLocalError("That image could not be read.");
+      }
     } finally {
-      setBusy(false);
+      if (pick === latestPick.current) setBusyState(false);
     }
   }
 
