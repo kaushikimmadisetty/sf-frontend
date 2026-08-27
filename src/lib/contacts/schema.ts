@@ -20,6 +20,19 @@ function optionalText(max: number, label: string) {
     .default(null);
 }
 
+/** Image types the API accepts, and the ceiling it enforces on the decoded bytes. */
+export const PHOTO_MEDIA_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
+export const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+
+const PHOTO_DATA_URL = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+export const PHOTO_ERROR = "Choose a PNG, JPEG, WEBP, or GIF image";
+
 function requiredText(max: number, label: string) {
   return z
     .string()
@@ -52,6 +65,13 @@ export const contactInputSchema = z.object({
     .transform((value) => value || null)
     .nullable()
     .default(null),
+  photo: z
+    .string()
+    .trim()
+    .transform((value) => value || null)
+    .nullable()
+    .default(null)
+    .refine((value) => value === null || PHOTO_DATA_URL.test(value), PHOTO_ERROR),
 }) satisfies z.ZodType<ContactInput, unknown>;
 
 export type ContactFormValues = z.input<typeof contactInputSchema>;
@@ -214,14 +234,20 @@ export const CONTACT_FIELDS: ContactFieldSpec[] = CONTACT_FIELD_GROUPS.flatMap(
   (group) => group.fields,
 );
 
+/**
+ * Every input name the form submits. `photo` is carried by a hidden input rather
+ * than a `ContactFieldSpec`, so it is listed here instead of in the field groups.
+ */
+export const FORM_INPUT_NAMES: (keyof ContactInput)[] = [
+  ...CONTACT_FIELDS.map((field) => field.name),
+  "photo",
+];
+
 /** Pull the contact fields out of a submitted form, as raw strings. */
 export function formDataToValues(
   formData: FormData,
 ): Record<keyof ContactInput, string> {
   return Object.fromEntries(
-    CONTACT_FIELDS.map((field) => [
-      field.name,
-      String(formData.get(field.name) ?? ""),
-    ]),
+    FORM_INPUT_NAMES.map((name) => [name, String(formData.get(name) ?? "")]),
   ) as Record<keyof ContactInput, string>;
 }
