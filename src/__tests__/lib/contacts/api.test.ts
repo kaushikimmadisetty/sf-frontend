@@ -18,6 +18,7 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 const INPUT: ContactInput = {
+  photo: null,
   first_name: "Grace",
   last_name: "Hopper",
   email: "grace@example.com",
